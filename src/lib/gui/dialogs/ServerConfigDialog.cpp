@@ -14,14 +14,14 @@
 #include "common/PlatformInfo.h"
 #include "common/Settings.h"
 #include "dialogs/ActionDialog.h"
+#include "dialogs/ComputerSettingsDialog.h"
 #include "dialogs/HotkeyDialog.h"
-#include "dialogs/ScreenSettingsDialog.h"
 #include "gui/widgets/SettingsDialogButtonBox.h"
 
 #include <QFileDialog>
 #include <QMessageBox>
 
-using enum ScreenConfig::SwitchCorner;
+using enum ComputerConfig::SwitchCorner;
 
 ServerConfigDialog::ServerConfigDialog(QWidget *parent, ServerConfig &config)
     : QDialog(parent, Qt::WindowTitleHint | Qt::WindowSystemMenuHint),
@@ -32,7 +32,7 @@ ServerConfigDialog::ServerConfigDialog(QWidget *parent, ServerConfig &config)
       m_originalServerConfigIsExternal(config.useExternalConfig()),
       m_originalServerConfigUsesExternalFile(config.configFile()),
       m_serverConfig(config),
-      m_screenSetupModel(m_serverConfig.screens(), m_columns, m_rows),
+      m_computerSetupModel(m_serverConfig.computers(), m_columns, m_rows),
       m_buttonBox{new SettingsDialogButtonBox(this)}
 {
   ui->setupUi(this);
@@ -41,9 +41,9 @@ ServerConfigDialog::ServerConfigDialog(QWidget *parent, ServerConfig &config)
 
   loadFromConfig();
 
-  ui->lblRemoveScreen->setPixmap(QIcon::fromTheme("user-trash").pixmap(QSize(64, 64)));
-  ui->lblNewScreen->setEnabled(!model().isFull());
-  ui->lblNewScreen->setPixmap(QIcon::fromTheme("video-display").pixmap(QSize(64, 64)));
+  ui->lblRemoveComputer->setPixmap(QIcon::fromTheme("user-trash").pixmap(QSize(64, 64)));
+  ui->lblNewComputer->setEnabled(!model().isFull());
+  ui->lblNewComputer->setPixmap(QIcon::fromTheme("video-display").pixmap(QSize(64, 64)));
   ui->btnBrowseConfigFile->setIcon(QIcon::fromTheme(QIcon::ThemeIcon::DocumentOpen));
 
   if (!deskflow::platform::isWindows())
@@ -73,10 +73,14 @@ void ServerConfigDialog::save()
   // now that the dialog has been accepted, copy the new server config to the
   // original one, which is a reference to the one in MainWindow.
   setOriginalServerConfig(serverConfig());
+  if (Settings::value(Settings::Server::EnableClipboard).toBool() != m_enableClipboard) {
+    Settings::setValue(Settings::Server::XdpRestoreToken, QString());
+    Settings::setValue(Settings::Server::XdpClipboardRetried, false);
+  }
   Settings::setValue(Settings::Server::Protocol, networkProtocolToOption(m_protocol));
   Settings::setValue(Settings::Server::EnableClipboard, m_enableClipboard);
   Settings::setValue(Settings::Server::ClipboardSize, m_clipboardSize);
-  Settings::setValue(Settings::Server::EnableHeatbeat, m_enableHeartbeat);
+  Settings::setValue(Settings::Server::EnableHeartbeat, m_enableHeartbeat);
   Settings::setValue(Settings::Server::Heartbeat, m_heartbeatRate);
   Settings::setValue(Settings::Server::EnableSwitchDelay, m_enableSwitchDelay);
   Settings::setValue(Settings::Server::SwitchDelay, m_switchDelay);
@@ -89,16 +93,17 @@ void ServerConfigDialog::save()
   Settings::setValue(Settings::Server::ExternalConfig, ui->groupExternalConfig->isChecked());
   Settings::setValue(Settings::Server::ExternalConfigFile, ui->lineConfigFile->text());
 
-  QStringList screenNames;
-  const auto screenList = m_screenSetupModel.m_Screens;
-  for (const auto &screen : screenList) {
-    const auto &screenName = screen.name();
-    if (screenName.isEmpty())
+  QStringList computerNames;
+  const auto computerList = m_computerSetupModel.m_computers;
+  for (const auto &computer : computerList) {
+    const auto &computerName = computer.name();
+    if (computerName.isEmpty())
       continue;
-    screenNames.append(QStringLiteral("screen_%1").arg(screenName));
-    Settings::setValue(Settings::Screen::Aliases.arg(screenName), screen.aliases());
+    computerNames.append(QStringLiteral("computer_%1").arg(computerName));
+    Settings::setValue(Settings::Computer::Aliases.arg(computerName), computer.aliases());
+    Settings::setValue(Settings::Computer::Name.arg(computerName), computerName);
   }
-  Settings::removeUnknownScreens(screenNames);
+  Settings::removeUnknownComputers(computerNames);
   QDialog::accept();
 }
 
@@ -345,9 +350,9 @@ void ServerConfigDialog::addClient()
   addComputer("", false);
 }
 
-void ServerConfigDialog::onScreenRemoved()
+void ServerConfigDialog::onComputerRemoved()
 {
-  ui->lblNewScreen->setEnabled(true);
+  ui->lblNewComputer->setEnabled(true);
   setButtonBoxEnabledButtons();
 }
 
@@ -381,7 +386,7 @@ bool ServerConfigDialog::browseConfigFile()
 void ServerConfigDialog::loadFromConfig()
 {
   m_protocol = Settings::networkProtocol();
-  m_enableHeartbeat = Settings::value(Settings::Server::EnableHeatbeat).toBool();
+  m_enableHeartbeat = Settings::value(Settings::Server::EnableHeartbeat).toBool();
   m_heartbeatRate = Settings::value(Settings::Server::Heartbeat).toInt();
   m_relativeMouseMoves = Settings::value(Settings::Server::RelativeMouseMoves).toBool();
   m_win32keepForeground = Settings::value(Settings::Server::Win32KeepForeground).toBool();
@@ -403,17 +408,17 @@ void ServerConfigDialog::loadFromConfig()
   for (const Hotkey &hotkey : std::as_const(serverConfig().hotkeys()))
     ui->listHotkeys->addItem(hotkey.text());
 
-  ui->screenSetupView->setModel(&m_screenSetupModel);
+  ui->computerSetupView->setModel(&m_computerSetupModel);
 
-  auto &screens = serverConfig().screens();
-  auto server = std::ranges::find_if(screens, [this](const Screen &screen) {
-    return (screen.name() == serverConfig().getServerName());
+  auto &computers = serverConfig().computers();
+  auto server = std::ranges::find_if(computers, [this](const Computer &computer) {
+    return (computer.name() == serverConfig().getServerName());
   });
 
-  if (server == screens.end()) {
-    Screen serverScreen(serverConfig().getServerName());
-    serverScreen.markAsServer();
-    model().screen(m_columns / 2, m_rows / 2) = serverScreen;
+  if (server == computers.end()) {
+    Computer serverComputer(serverConfig().getServerName());
+    serverComputer.markAsServer();
+    model().computer(m_columns / 2, m_rows / 2) = serverComputer;
   } else {
     server->markAsServer();
   }
@@ -427,8 +432,8 @@ void ServerConfigDialog::resetFromSettings()
   m_serverConfig.setUseExternalConfig(m_originalServerConfigIsExternal);
   loadFromConfig();
   if (ui->tabWidget->currentWidget() == ui->tabComputers) {
-    ui->screenSetupView->reset();
-    ui->screenSetupView->update();
+    ui->computerSetupView->reset();
+    ui->computerSetupView->update();
   }
 }
 
@@ -463,7 +468,7 @@ void ServerConfigDialog::initConnections() const
   connect(m_buttonBox, &SettingsDialogButtonBox::reset, this, &ServerConfigDialog::resetFromSettings);
   connect(m_buttonBox, &SettingsDialogButtonBox::restoreDefault, this, &ServerConfigDialog::restoreFromDefaults);
   connect(ui->tabWidget, &QTabWidget::currentChanged, this, &ServerConfigDialog::setButtonBoxEnabledButtons);
-  connect(ui->lblRemoveScreen, &TrashScreenWidget::screenRemoved, this, &ServerConfigDialog::onScreenRemoved);
+  connect(ui->lblRemoveComputer, &RemoveComputerWidget::computerRemoved, this, &ServerConfigDialog::onComputerRemoved);
   connect(ui->btnNewHotkey, &QPushButton::clicked, this, &ServerConfigDialog::addHotkey);
   connect(ui->btnEditHotkey, &QPushButton::clicked, this, &ServerConfigDialog::editHotkey);
   connect(ui->btnRemoveHotkey, &QPushButton::clicked, this, &ServerConfigDialog::removeHotkey);
@@ -508,7 +513,8 @@ void ServerConfigDialog::initConnections() const
   );
   connect(ui->cbDisableLockToComputer, &QCheckBox::toggled, this, &ServerConfigDialog::toggleLockToComputer);
   connect(
-      &m_screenSetupModel, &ScreenSetupModel::screensChanged, this, &ServerConfigDialog::setButtonBoxEnabledButtons
+      &m_computerSetupModel, &ComputerSetupModel::computersChanged, this,
+      &ServerConfigDialog::setButtonBoxEnabledButtons
   );
   connect(Settings::instance(), &Settings::settingsWritableChanged, this, &ServerConfigDialog::updateControls);
 }
@@ -536,7 +542,7 @@ void ServerConfigDialog::updateControls() const
 void ServerConfigDialog::restoreFromDefaults()
 {
   m_protocol = networkProtocolFromString(Settings::defaultValue(Settings::Server::Protocol).toString());
-  m_enableHeartbeat = Settings::defaultValue(Settings::Server::EnableHeatbeat).toBool();
+  m_enableHeartbeat = Settings::defaultValue(Settings::Server::EnableHeartbeat).toBool();
   m_heartbeatRate = Settings::defaultValue(Settings::Server::Heartbeat).toInt();
   m_relativeMouseMoves = Settings::defaultValue(Settings::Server::RelativeMouseMoves).toBool();
   m_win32keepForeground = Settings::defaultValue(Settings::Server::Win32KeepForeground).toBool();
@@ -570,14 +576,15 @@ void ServerConfigDialog::setServerConfig()
 bool ServerConfigDialog::addComputer(const QString &clientName, bool doSilent)
 {
   bool isAccepted = false;
-  Screen newScreen(clientName);
+  Computer newComputer(clientName);
 
-  if (ScreenSettingsDialog dlg(this, &newScreen, &model().m_Screens); doSilent || dlg.exec() == QDialog::Accepted) {
-    model().addScreen(newScreen);
+  if (ComputerSettingsDialog dlg(this, &newComputer, &model().m_computers);
+      doSilent || dlg.exec() == QDialog::Accepted) {
+    model().addComputer(newComputer);
     isAccepted = true;
   }
 
-  ui->lblNewScreen->setEnabled(!model().isFull());
+  ui->lblNewComputer->setEnabled(!model().isFull());
   return isAccepted;
 }
 
@@ -588,7 +595,7 @@ bool ServerConfigDialog::isGeneralConfigModified() const
          m_protocol != Settings::networkProtocol() ||
          m_enableClipboard != Settings::value(Settings::Server::EnableClipboard).toBool() ||
          m_clipboardSize != Settings::value(Settings::Server::ClipboardSize).toUInt() ||
-         m_enableHeartbeat != Settings::value(Settings::Server::EnableHeatbeat).toBool() ||
+         m_enableHeartbeat != Settings::value(Settings::Server::EnableHeartbeat).toBool() ||
          m_heartbeatRate != Settings::value(Settings::Server::Heartbeat).toInt() ||
          m_enableSwitchDelay != Settings::value(Settings::Server::EnableSwitchDelay).toBool() ||
          m_switchDelay != Settings::value(Settings::Server::SwitchDelay).toInt() ||
@@ -607,7 +614,7 @@ bool ServerConfigDialog::isGeneralConfigDefault() const
          m_protocol == networkProtocolFromString(Settings::defaultValue(Settings::Server::Protocol).toString()) &&
          m_enableClipboard == Settings::defaultValue(Settings::Server::EnableClipboard).toBool() &&
          m_clipboardSize == Settings::defaultValue(Settings::Server::ClipboardSize).toUInt() &&
-         m_enableHeartbeat == Settings::defaultValue(Settings::Server::EnableHeatbeat).toBool() &&
+         m_enableHeartbeat == Settings::defaultValue(Settings::Server::EnableHeartbeat).toBool() &&
          m_heartbeatRate == Settings::defaultValue(Settings::Server::Heartbeat).toInt() &&
          m_enableSwitchDelay == Settings::defaultValue(Settings::Server::EnableSwitchDelay).toBool() &&
          m_switchDelay == Settings::defaultValue(Settings::Server::SwitchDelay).toInt() &&

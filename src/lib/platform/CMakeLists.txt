@@ -18,6 +18,7 @@ if(UNIX AND NOT APPLE)
   set(CMAKE_REQUIRED_LIBRARIES "${CMAKE_REQUIRED_LIBRARIES};${LIBPORTAL_LINK_LIBRARIES};")
   check_symbol_exists(xdp_input_capture_session_get_restore_token "libportal/inputcapture.h" HAVE_IC_RESTORE)
   check_symbol_exists(xdp_session_request_clipboard "libportal/portal-helpers.h;libportal/clipboard.h" HAVE_LP_CLIPBOARD)
+  check_symbol_exists(xdp_global_shortcut_new "libportal/globalshortcuts.h" HAVE_LP_SHORTCUTS)
   cmake_pop_check_state()
 endif()
 
@@ -36,6 +37,8 @@ if(WIN32)
     MSWindowsClipboardHTMLConverter.h
     MSWindowsClipboardUTF16Converter.cpp
     MSWindowsClipboardUTF16Converter.h
+    MSWindowsComputer.cpp
+    MSWindowsComputer.h
     MSWindowsDebugOutputter.cpp
     MSWindowsDebugOutputter.h
     MSWindowsDesks.cpp
@@ -50,8 +53,6 @@ if(WIN32)
     MSWindowsPowerManager.h
     MSWindowsProcess.cpp
     MSWindowsProcess.h
-    MSWindowsScreen.cpp
-    MSWindowsScreen.h
     MSWindowsScreenSaver.cpp
     MSWindowsScreenSaver.h
     MSWindowsSession.cpp
@@ -82,6 +83,8 @@ elseif(APPLE)
     OSXClipboardUTF16Converter.h
     OSXCocoaApp.h
     OSXCocoaApp.m
+    OSXComputer.h
+    OSXComputer.mm
     OSXEventQueueBuffer.cpp
     OSXEventQueueBuffer.h
     OSXKeyLayoutResource.cpp
@@ -94,8 +97,6 @@ elseif(APPLE)
     OSXPasteboardPeeker.m
     OSXPowerManager.cpp
     OSXPowerManager.h
-    OSXScreen.h
-    OSXScreen.mm
     OSXScreenSaver.cpp
     OSXScreenSaver.h
     OSXScreenSaverControl.h
@@ -127,12 +128,12 @@ elseif(UNIX)
       XWindowsClipboardUCS2Converter.h
       XWindowsClipboardUTF8Converter.cpp
       XWindowsClipboardUTF8Converter.h
+      XWindowsComputer.cpp
+      XWindowsComputer.h
       XWindowsEventQueueBuffer.cpp
       XWindowsEventQueueBuffer.h
       XWindowsKeyState.cpp
       XWindowsKeyState.h
-      XWindowsScreen.cpp
-      XWindowsScreen.h
       XWindowsScreenSaver.cpp
       XWindowsScreenSaver.h
       XWindowsUtil.cpp
@@ -145,12 +146,12 @@ elseif(UNIX)
     list(APPEND PLATFORM_SOURCES
       EiClipboard.cpp
       EiClipboard.h
+      EiComputer.cpp
+      EiComputer.h
       EiEventQueueBuffer.cpp
       EiEventQueueBuffer.h
       EiKeyState.cpp
       EiKeyState.h
-      EiScreen.cpp
-      EiScreen.h
     )
     # The Portal sources also require EI.
     if(LIBPORTAL_FOUND)
@@ -164,6 +165,12 @@ elseif(UNIX)
         list(APPEND PLATFORM_SOURCES
           PortalClipboard.cpp
           PortalClipboard.h
+        )
+      endif()
+      if(HAVE_LP_SHORTCUTS)
+        list(APPEND PLATFORM_SOURCES
+          PortalGlobalShortcuts.cpp
+          PortalGlobalShortcuts.h
         )
       endif()
     endif()
@@ -191,6 +198,9 @@ if(UNIX)
     endif()
     if (HAVE_LP_CLIPBOARD)
       target_compile_definitions(platform PUBLIC HAVE_LIBPORTAL_CLIPBOARD)
+    endif()
+    if (HAVE_LP_SHORTCUTS)
+      target_compile_definitions(platform PUBLIC HAVE_LIBPORTAL_SHORTCUTS)
     endif()
     target_include_directories(platform PUBLIC ${LIBEI_INCLUDE_DIRS} ${LIBPORTAL_INCLUDE_DIRS})
     target_link_libraries(platform
